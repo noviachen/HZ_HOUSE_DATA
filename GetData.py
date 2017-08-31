@@ -10,6 +10,7 @@ import pymysql
 import requests
 import json
 import datetime
+import time
 from bs4 import BeautifulSoup
 
 
@@ -67,7 +68,7 @@ max_page = int(max_page)
 
 # 连接数据库
 print('连接数据库中……')
-conn = pymysql.connect(host='localhost', port=3306, user='root', password='')
+conn = pymysql.connect(host='localhost', port=3306, user='root', password='123456')
 cur = conn.cursor()
 cur.execute('USE scraping')
 print('数据库已连接.\n')
@@ -95,23 +96,29 @@ for i in range(1, max_page + 1):
     html = session.get(json_url, headers=headers, data=params).text
     json_data = json.loads(html)["list"]
     for data in json_data:
+        # 重复性校验
+        cur.execute('SELECT * FROM hz_esf_saling WHERE gpID=%s', (data['gpfyid']))
+        if cur.rowcount > 0:
+            continue
+        # 存储数据
         try:
-            cur.execute('INSERT INTO hz_esf_saling (' + col_join + ') VALUES (' + sstr_join + ')',(
-                            data['gpfyid'],
-                            data['fczsh'].encode('utf8'),
-                            data['fwtybh'],
-                            data['xqmc'].encode('utf8'),
-                            data['cqmc'].encode('utf8'),
-                            data['jzmj'],
-                            data['wtcsjg'],
-                            data['scgpshsj'],
-                            data['mdmc'].encode('utf8'),
-                            data['gplxrxm'].encode('utf8'),
-                            haspic(data['gpfyid'])
-                        ))
+            cur.execute('INSERT INTO hz_esf_saling (' + col_join + ') VALUES (' + sstr_join + ')', (
+                data['gpfyid'],
+                data['fczsh'].encode('utf8'),
+                data['fwtybh'],
+                data['xqmc'].encode('utf8'),
+                data['cqmc'].encode('utf8'),
+                data['jzmj'],
+                data['wtcsjg'],
+                data['scgpshsj'],
+                data['mdmc'].encode('utf8'),
+                data['gplxrxm'].encode('utf8'),
+                haspic(data['gpfyid'])
+            ))
             conn.commit()
         except:
             error_gpid.append(data['gpfyid'])
+    time.sleep(10)
 
 print('所有房源信息已抓取完成.\n')
 print('错误的挂牌房源编号有： ' + ', '.join(error_gpid))
