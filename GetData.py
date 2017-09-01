@@ -85,9 +85,8 @@ col_join = ','.join(cols)
 sstr_join = ','.join(sstr)
 
 # 获取当前数据库房源的最新日期
-# 比如数据库里最大的日期是 2017-08-31 ，其实只要获取到 2017-8-30 这天的就可以完成了
+# 比如数据库里最大的日期是 2017-08-31 ，为了保险其实只要获取到 2017-8-30 这天的就可以完成了
 # 后面没有必要进行下去了，都是已经采集过的
-# 为了保险期间，可以多往前推一天时间，到 2017-8-29
 cur.execute('SELECT max(gp_date) FROM hz_esf_saling')
 max_data = cur.fetchone()[0]
 # 退出信号
@@ -109,7 +108,7 @@ for i in range(1, max_page + 1):
     json_data = json.loads(json_html)["list"]
     for data in json_data:
         # 发出退出循环信号
-        if data['scgpshsj'] < str(max_data - datetime.timedelta(days=2)):
+        if data['scgpshsj'] < str(max_data - datetime.timedelta(days=1)):
             exit_code = 'EXIT_NOW'
             break
         # 重复性校验
