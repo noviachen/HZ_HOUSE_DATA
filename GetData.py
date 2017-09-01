@@ -60,9 +60,9 @@ params = {
 origin_url = 'http://jjhygl.hzfc.gov.cn/webty/WebFyAction_getGpxxSelectList.jspx?page='
 
 # 获取最大页数 max_page
-html = session.get(origin_url, headers=headers, data=params).text
-data = json.loads(html)
-pageinfo = BeautifulSoup(data['pageinfo'], 'html.parser')
+page_html = session.get(origin_url, headers=headers, data=params).text
+page_data = json.loads(page_html)
+pageinfo = BeautifulSoup(page_data['pageinfo'], 'html.parser')
 max_page = pageinfo.find('font', {'class': 'color-blue09'}).get_text()
 max_page = int(max_page)
 
@@ -84,20 +84,36 @@ sstr = [
 col_join = ','.join(cols)
 sstr_join = ','.join(sstr)
 
+# 获取当前数据库房源的最新日期
+# 比如数据库里最大的日期是 2017-08-31 ，其实只要获取到 2017-8-30 这天的就可以完成了
+# 后面没有必要进行下去了，都是已经采集过的
+# 为了保险期间，可以多往前推一天时间，到 2017-8-29
+cur.execute('SELECT max(gp_date) FROM hz_esf_saling')
+max_data = cur.fetchone()[0]
+# 退出信号
+exit_code = ''
+
 # 通过 API 获取 JSON 解析后存储到 MYSQL
 print('获取房源信息中……')
 # 存储错误的挂牌房源编号
 error_gpid = []
 for i in range(1, max_page + 1):
+    # 处理跳出循环信号
+    if exit_code == 'EXIT_NOW':
+        break
     print('当前进度为：   ' + str(i) + '/' + str(max_page) + '   '
           + str('%.2f%%' % (i / max_page * 100)) + '   ' + str(datetime.datetime.now()))
     # 获取 JSON 数据
     json_url = origin_url + str(i)
-    html = session.get(json_url, headers=headers, data=params).text
-    json_data = json.loads(html)["list"]
+    json_html = session.get(json_url, headers=headers, data=params).text
+    json_data = json.loads(json_html)["list"]
     for data in json_data:
+        # 发出退出循环信号
+        if data['scgpshsj'] < str(max_data - datetime.timedelta(days=2)):
+            exit_code = 'EXIT_NOW'
+            break
         # 重复性校验
-        cur.execute('SELECT * FROM hz_esf_saling WHERE gpID=%s', (data['gpfyid']))
+        cur.execute('SELECT * FROM hz_esf_saling WHERE gpID = %s', (data['gpfyid']))
         if cur.rowcount > 0:
             continue
         # 存储数据
