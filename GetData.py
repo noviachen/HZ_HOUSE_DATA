@@ -73,6 +73,10 @@ cur = conn.cursor()
 cur.execute('USE scraping')
 print('数据库已连接.\n')
 
+# 获取初始行数（用来计算最终获取的条数）
+cur.execute('SELECT * FROM hz_esf_saling')
+len_start = cur.rowcount
+
 # INSERT INTO MYSQL 需要用到的信息
 cols = [
     'gpID', 'fczID', 'fyID', 'block', 'district', 'area',
@@ -133,10 +137,24 @@ for i in range(1, max_page + 1):
             conn.commit()
         except:
             error_gpid.append(data['gpfyid'])
-    time.sleep(10)
+    time.sleep(0.5)
+
+# 获取最终行数（用来计算最终获取的条数）
+cur.execute('SELECT * FROM hz_esf_saling')
+len_end = cur.rowcount
 
 print('所有房源信息已抓取完成.\n')
 print('错误的挂牌房源编号有： ' + ', '.join(error_gpid))
+
+# 推送到微信（SERVER酱）
+SCKEY = 'SCU'
+# 标题
+text = '房源信息抓取完成'
+# 内容
+desp = '成功抓取到 ' + str(len_end - len_start) + ' 条房源信息'
+# 发送消息
+send_url = 'https://sc.ftqq.com/' + SCKEY + '.send?text=' + text + '&desp=' + desp
+session.get(send_url)
 
 # 关闭数据库连接
 cur.close()
