@@ -6,10 +6,15 @@
 # 户型图地址：http://jjhygl.hzfc.gov.cn/memty/MemAction_selectFwytxxList.jspx?gpfyid=
 # 数据表结构见 TableStructure.py
 
+# 项目地址： https://github.com/noviachen/HZ_HOUSE_DATA
+# 作者： uznEnehC
+# 使用 Python 3 编译
+
+
+
 import pymysql
 import requests
 import json
-import datetime
 import time
 from bs4 import BeautifulSoup
 
@@ -24,6 +29,87 @@ def haspic(gpid):
     else:
         has_pic = 0
     return has_pic
+
+
+# 获取需要存储的挂牌房源信息，以在下一步中存储
+def get_fydata():
+    # 存储房源信息的列表
+    data_list = []
+    # 获取当前数据库房源的最新日期
+    # 比如数据库里最大的日期是 2017-08-31 ，其实只要获取到 2017-8-30 这天的就可以完成了
+    cur.execute('SELECT max(gp_date) FROM hz_esf_saling')
+    max_date = cur.fetchone()[0]
+    # 退出信号
+    exit_code = ''
+    for page in range(1, maxpage + 1):
+        # 接收跳出循环信号
+        if exit_code == 'EXIT_NOW':
+            return data_list
+        # 获取 JSON 数据
+        json_url = origin_url + str(page)
+        json_html = session.get(json_url, headers=headers, data=params).text
+        json_data = json.loads(json_html)["list"]
+        for data in json_data:
+            # 发出退出循环信号
+            if data['scgpshsj'] < str(max_date):
+                exit_code = 'EXIT_NOW'
+                break
+            # 挂牌房源编号重复性校验
+            cur.execute('SELECT * FROM hz_esf_saling WHERE gpID = ' + str(data['gpfyid']))
+            if cur.rowcount > 0:
+                continue
+            fy_data = [
+                data['gpfyid'],
+                data['fczsh'],
+                data['fwtybh'],
+                data['xqmc'],
+                data['cqmc'],
+                data['jzmj'],
+                data['wtcsjg'],
+                data['scgpshsj'],
+                data['mdmc'],
+                data['gplxrxm'],
+                haspic(data['gpfyid']),
+            ]
+            data_list.append(fy_data)
+        time.sleep(30)
+    return data_list
+
+
+# 存储到数据库
+def save2db(data_list):
+    # INSERT INTO MYSQL 需要用到的信息
+    cols = [
+        'gpID', 'fczID', 'fyID', 'block', 'district', 'area',
+        'price', 'gp_date', 'org_name', 'person', 'has_pic'
+    ]
+    sstr = [
+        '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s'
+    ]
+    col_join = ','.join(cols)
+    sstr_join = ','.join(sstr)
+    for data in data_list:
+        cur.execute('INSERT INTO hz_esf_saling (' + col_join + ') VALUES (' + sstr_join + ')', (
+            data[0],
+            data[1],
+            data[2],
+            data[3],
+            data[4],
+            data[5],
+            data[6],
+            data[7],
+            data[8],
+            data[9],
+            data[10]
+        ))
+        conn.commit()
+
+
+# 推送到微信（SERVER酱）
+def send2wx(text, desp):
+    SCKEY = ''
+    send_url = 'https://sc.ftqq.com/' + SCKEY + '.send?text=' + str(text) + '&desp=' + str(desp)
+    session.get(send_url)
 
 
 # POST 信息
@@ -59,102 +145,39 @@ params = {
 # API 地址
 origin_url = 'http://jjhygl.hzfc.gov.cn/webty/WebFyAction_getGpxxSelectList.jspx?page='
 
-# 获取最大页数 max_page
+# 获取最大页数
 page_html = session.get(origin_url, headers=headers, data=params).text
 page_data = json.loads(page_html)
 pageinfo = BeautifulSoup(page_data['pageinfo'], 'html.parser')
-max_page = pageinfo.find('font', {'class': 'color-blue09'}).get_text()
-max_page = int(max_page)
+maxpage = pageinfo.find('font', {'class': 'color-blue09'}).get_text()
+maxpage = int(maxpage)
 
 # 连接数据库
-print('连接数据库中……')
-conn = pymysql.connect(host='localhost', port=3306, user='root', password='123456')
+conn = pymysql.connect(host='localhost', port=3306, user='root', password='123456', charset='utf8')
 cur = conn.cursor()
 cur.execute('USE scraping')
-print('数据库已连接.\n')
 
-# 获取初始行数（用来计算最终获取的条数）
-cur.execute('SELECT * FROM hz_esf_saling')
-len_start = cur.rowcount
+# 获取待存储的数据列表
+data_list = get_fydata()
 
-# INSERT INTO MYSQL 需要用到的信息
-cols = [
-    'gpID', 'fczID', 'fyID', 'block', 'district', 'area',
-    'price', 'gp_date', 'org_name', 'person', 'has_pic'
-]
-sstr = [
-    '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s'
-]
-col_join = ','.join(cols)
-sstr_join = ','.join(sstr)
+# 列表长度，用来计算数量
+data_len = len(data_list)
+if data_len == 0:
+    # 没有新增的房源
+    text = '房源信息抓取完成'
+    desp = '没有新增的房源信息'
+    send2wx(text, desp)
+    cur.close()
+    conn.close()
+    exit()
 
-# 获取当前数据库房源的最新日期
-# 比如数据库里最大的日期是 2017-08-31 ，为了保险其实只要获取到 2017-8-30 这天的就可以完成了
-# 后面没有必要进行下去了，都是已经采集过的
-cur.execute('SELECT max(gp_date) FROM hz_esf_saling')
-max_data = cur.fetchone()[0]
-# 退出信号
-exit_code = ''
+# 存储数据
+save2db(data_list)
 
-# 通过 API 获取 JSON 解析后存储到 MYSQL
-print('获取房源信息中……')
-# 存储错误的挂牌房源编号
-error_gpid = []
-for i in range(1, max_page + 1):
-    # 处理跳出循环信号
-    if exit_code == 'EXIT_NOW':
-        break
-    print('当前进度为：   ' + str(i) + '/' + str(max_page) + '   '
-          + str('%.2f%%' % (i / max_page * 100)) + '   ' + str(datetime.datetime.now()))
-    # 获取 JSON 数据
-    json_url = origin_url + str(i)
-    json_html = session.get(json_url, headers=headers, data=params).text
-    json_data = json.loads(json_html)["list"]
-    for data in json_data:
-        # 发出退出循环信号
-        if data['scgpshsj'] < str(max_data - datetime.timedelta(days=1)):
-            exit_code = 'EXIT_NOW'
-            break
-        # 重复性校验
-        cur.execute('SELECT * FROM hz_esf_saling WHERE gpID = %s', (data['gpfyid']))
-        if cur.rowcount > 0:
-            continue
-        # 存储数据
-        try:
-            cur.execute('INSERT INTO hz_esf_saling (' + col_join + ') VALUES (' + sstr_join + ')', (
-                data['gpfyid'],
-                data['fczsh'].encode('utf8'),
-                data['fwtybh'],
-                data['xqmc'].encode('utf8'),
-                data['cqmc'].encode('utf8'),
-                data['jzmj'],
-                data['wtcsjg'],
-                data['scgpshsj'],
-                data['mdmc'].encode('utf8'),
-                data['gplxrxm'].encode('utf8'),
-                haspic(data['gpfyid'])
-            ))
-            conn.commit()
-        except:
-            error_gpid.append(data['gpfyid'])
-    time.sleep(0.5)
-
-# 获取最终行数（用来计算最终获取的条数）
-cur.execute('SELECT * FROM hz_esf_saling')
-len_end = cur.rowcount
-
-print('所有房源信息已抓取完成.\n')
-print('错误的挂牌房源编号有： ' + ', '.join(error_gpid))
-
-# 推送到微信（SERVER酱）
-SCKEY = 'SCU'
-# 标题
+# 微信通知
 text = '房源信息抓取完成'
-# 内容
-desp = '成功抓取到 ' + str(len_end - len_start) + ' 条房源信息'
-# 发送消息
-send_url = 'https://sc.ftqq.com/' + SCKEY + '.send?text=' + text + '&desp=' + desp
-session.get(send_url)
+desp = '成功抓取到 ' + str(data_len) + ' 条房源信息'
+send2wx(text, desp)
 
 # 关闭数据库连接
 cur.close()
