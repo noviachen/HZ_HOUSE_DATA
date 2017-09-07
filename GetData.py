@@ -99,6 +99,7 @@ def save2db(datalist):
 
 # 推送到微信（SERVER酱）
 def send2wx(send_text, send_desp):
+    # 这里需要填入自己的 SCKEY
     SCKEY = ''
     send_url = 'https://sc.ftqq.com/' + SCKEY + '.send?text=' + str(send_text) + '&desp=' + str(send_desp)
     session.get(send_url)
