@@ -1,16 +1,14 @@
-# 获取 杭州市二手房交易监管服务平台 关于二手房的数据
+# 获取 杭州市二手房交易监管服务平台 二手房房源信息
 # 网站地址：http://jjhygl.hzfc.gov.cn/webty/gpfy/gpfySelectlist.jsp
 # 截取到的 API 地址：http://jjhygl.hzfc.gov.cn/webty/WebFyAction_getGpxxSelectList.jspx?page=
-# API 里面能获取的信息不全，若通过 requests 获取房源详细信息又容易出问题，暂时那部分不全的数据先不管
+# API 里面能获取的信息不全，若通过解析房源详细页面又容易出问题，暂时那部分不全的数据先不管
 # 房源详细页面为：http://jjhygl.hzfc.gov.cn/webty/WebFyAction_toGpxxInfo.jspx?gpfyid=
 # 户型图地址：http://jjhygl.hzfc.gov.cn/memty/MemAction_selectFwytxxList.jspx?gpfyid=
-# 数据表结构见 TableStructure.py
+# 数据表结构见 TableStructure.py 和 CreateTable
 
 # 项目地址： https://github.com/noviachen/HZ_HOUSE_DATA
-# 作者： uznEnehC
-# 使用 Python 3 编译
-
-
+# 作    者： uznEnehC
+# 注    意： 请使用 Python 3.x 运行此文件
 
 import pymysql
 import requests
@@ -34,26 +32,20 @@ def haspic(gpid):
 # 获取需要存储的挂牌房源信息，以在下一步中存储
 def get_fydata():
     # 存储房源信息的列表
-    data_list = []
+    data_lists = []
     # 获取当前数据库房源的最新日期
     # 比如数据库里最大的日期是 2017-08-31 ，其实只要获取到 2017-8-30 这天的就可以完成了
     cur.execute('SELECT max(gp_date) FROM hz_esf_saling')
     max_date = cur.fetchone()[0]
-    # 退出信号
-    exit_code = ''
     for page in range(1, maxpage + 1):
-        # 接收跳出循环信号
-        if exit_code == 'EXIT_NOW':
-            return data_list
         # 获取 JSON 数据
         json_url = origin_url + str(page)
         json_html = session.get(json_url, headers=headers, data=params).text
         json_data = json.loads(json_html)["list"]
         for data in json_data:
-            # 发出退出循环信号
+            # 退出循环条件
             if data['scgpshsj'] < str(max_date):
-                exit_code = 'EXIT_NOW'
-                break
+                return data_lists
             # 挂牌房源编号重复性校验
             cur.execute('SELECT * FROM hz_esf_saling WHERE gpID = ' + str(data['gpfyid']))
             if cur.rowcount > 0:
@@ -71,13 +63,13 @@ def get_fydata():
                 data['gplxrxm'],
                 haspic(data['gpfyid']),
             ]
-            data_list.append(fy_data)
-        time.sleep(30)
-    return data_list
+            data_lists.append(fy_data)
+        time.sleep(10)
+    return data_lists
 
 
 # 存储到数据库
-def save2db(data_list):
+def save2db(datalist):
     # INSERT INTO MYSQL 需要用到的信息
     cols = [
         'gpID', 'fczID', 'fyID', 'block', 'district', 'area',
@@ -88,7 +80,7 @@ def save2db(data_list):
     ]
     col_join = ','.join(cols)
     sstr_join = ','.join(sstr)
-    for data in data_list:
+    for data in datalist:
         cur.execute('INSERT INTO hz_esf_saling (' + col_join + ') VALUES (' + sstr_join + ')', (
             data[0],
             data[1],
@@ -106,9 +98,9 @@ def save2db(data_list):
 
 
 # 推送到微信（SERVER酱）
-def send2wx(text, desp):
+def send2wx(send_text, send_desp):
     SCKEY = ''
-    send_url = 'https://sc.ftqq.com/' + SCKEY + '.send?text=' + str(text) + '&desp=' + str(desp)
+    send_url = 'https://sc.ftqq.com/' + SCKEY + '.send?text=' + str(send_text) + '&desp=' + str(send_desp)
     session.get(send_url)
 
 
@@ -151,6 +143,7 @@ page_data = json.loads(page_html)
 pageinfo = BeautifulSoup(page_data['pageinfo'], 'html.parser')
 maxpage = pageinfo.find('font', {'class': 'color-blue09'}).get_text()
 maxpage = int(maxpage)
+maxpage=1
 
 # 连接数据库
 conn = pymysql.connect(host='localhost', port=3306, user='root', password='123456', charset='utf8')
@@ -162,8 +155,8 @@ data_list = get_fydata()
 
 # 列表长度，用来计算数量
 data_len = len(data_list)
+# 没有新增的房源
 if data_len == 0:
-    # 没有新增的房源
     text = '房源信息抓取完成'
     desp = '没有新增的房源信息'
     send2wx(text, desp)
