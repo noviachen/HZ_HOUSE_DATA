@@ -144,7 +144,6 @@ page_data = json.loads(page_html)
 pageinfo = BeautifulSoup(page_data['pageinfo'], 'html.parser')
 maxpage = pageinfo.find('font', {'class': 'color-blue09'}).get_text()
 maxpage = int(maxpage)
-maxpage=1
 
 # 连接数据库
 conn = pymysql.connect(host='localhost', port=3306, user='root', password='123456', charset='utf8')
