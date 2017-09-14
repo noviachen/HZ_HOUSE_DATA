@@ -168,8 +168,9 @@ if data_len == 0:
 save2db(data_list)
 
 # 微信通知
+cur.execute('SELECT * FROM hz_esf_saling')
 text = '房源信息抓取完成'
-desp = '成功抓取到 ' + str(data_len) + ' 条房源信息'
+desp = '成功抓取到 ' + str(data_len) + ' 条房源信息，目前数据库中已有 '+str(cur.rowcount)+' 条记录'
 send2wx(text, desp)
 
 # 关闭数据库连接
